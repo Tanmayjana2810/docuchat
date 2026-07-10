@@ -198,6 +198,29 @@ class RAGEngine:
         streaming_response = synthesizer.synthesize(question, nodes=relevant)
         return True, sources, streaming_response.response_gen
 
+    # ---- WEB ANSWER SUMMARISATION -----------------------------------------
+    def summarize_web(self, question: str, web_text: str) -> str:
+        """Condense a raw web-search result into a concise, direct answer.
+
+        Dappier returns a large block of text; we ask the LLM to distill it into
+        2–3 sentences that actually answer the user's question.
+        """
+        self._lazy_init()
+        if LlamaSettings.llm is None:
+            return web_text[:600]
+
+        prompt = (
+            "Using only the web search results below, answer the question in 2–3 "
+            "clear, factual sentences. Do not add commentary or lists.\n\n"
+            f"Question: {question}\n\n"
+            f"Web search results:\n{web_text}\n\n"
+            "Concise answer:"
+        )
+        try:
+            return str(LlamaSettings.llm.complete(prompt)).strip()
+        except Exception:
+            return web_text[:600]
+
 
 # One shared engine for the whole app.
 engine = RAGEngine()

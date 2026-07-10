@@ -127,7 +127,8 @@ async def ask(body: AskRequest, user_id: str = Depends(current_user)) -> AskResp
     if (not grounded or _looks_unanswered(answer)) and body.use_web and web_enabled():
         web_answer = search_web(body.question)
         if web_answer:
-            answer, grounded, sources = web_answer, False, []
+            answer = engine.summarize_web(body.question, web_answer)
+            grounded, sources = False, []
 
     # 4) Save the assistant's reply and return it.
     store.upsert_message(
@@ -161,7 +162,8 @@ async def ask_stream(body: AskRequest, user_id: str = Depends(current_user)) -> 
             if not grounded or _looks_unanswered(answer):
                 web_answer = search_web(body.question)
                 if web_answer:
-                    answer, grounded, sources = web_answer, False, []
+                    answer = engine.summarize_web(body.question, web_answer)
+                    grounded, sources = False, []
             yield json.dumps(
                 {"type": "meta", "grounded": grounded, "sources": [s.model_dump() for s in sources]}
             ) + "\n"
