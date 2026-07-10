@@ -28,10 +28,28 @@ services:
 
   mongo:
     image: mongo:7
-    ports:
-      - "27017:27017"
     volumes:
       - mongo_data:/data/db
 
+  # Caddy is a reverse proxy that automatically obtains and renews a free
+  # HTTPS certificate (Let's Encrypt) for your domain, then forwards traffic
+  # to the backend. This is what turns http://<ip>:8000 into https://<domain>.
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - DOMAIN=${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+
 volumes:
   mongo_data:
+  caddy_data:
+  caddy_config:

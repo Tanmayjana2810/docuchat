@@ -1,0 +1,6 @@
+# Caddy config. {$DOMAIN} is filled in from the DOMAIN variable in your .env.
+# Caddy automatically gets + renews a Let's Encrypt HTTPS certificate for this
+# domain and reverse-proxies all requests to the backend container on port 8000.
+{$DOMAIN} {
+    reverse_proxy backend:8000
+}
