@@ -37,6 +37,7 @@ from fastapi import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from starlette.concurrency import run_in_threadpool
 
 from .config import settings
 from .ingest import load_document
@@ -139,9 +140,11 @@ async def upload(
     with open(dest, "wb") as f:
         f.write(await file.read())
 
-    # Tag the document with the chat's session_id so only this chat can query it.
-    docs = load_document(dest)
-    n_chunks = engine.add_documents(docs, session_id=session_id)
+    # Parsing + embedding are CPU-heavy and blocking. Run them in a threadpool
+    # so a large PDF doesn't freeze the event loop (which would block every other
+    # request — chat, health, etc.) while it's being indexed.
+    docs = await run_in_threadpool(load_document, dest)
+    n_chunks = await run_in_threadpool(engine.add_documents, docs, session_id)
 
     return UploadResponse(
         filename=file.filename,

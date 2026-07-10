@@ -2,7 +2,7 @@
 // the main chat window, holds the uploaded-document + theme state, and handles
 // drag-and-drop file uploads over the whole app.
 
-import { useEffect, useState, type DragEvent } from "react";
+import { useEffect, useRef, useState, type DragEvent } from "react";
 import { Sidebar } from "./components/Sidebar";
 import { ChatWindow } from "./components/ChatWindow";
 import { UploadPanel } from "./components/UploadPanel";
@@ -20,7 +20,7 @@ export default function App() {
     clearChat,
     deleteSession,
     renameSession,
-    setActiveDoc,
+    setSessionDoc,
     addMessage,
     updateLastMessage,
   } = useSessions();
@@ -29,8 +29,13 @@ export default function App() {
 
   // The active chat's document (per-session, so switching chats updates it).
   const docName = active?.docName ?? null;
-  const [uploadStatus, setUploadStatus] = useState<string>("");
-  const [uploading, setUploading] = useState(false);
+
+  // Upload state is tracked PER session id so an upload in one chat never blocks
+  // or bleeds into another chat.
+  const [uploadingIds, setUploadingIds] = useState<Set<string>>(() => new Set());
+  const [uploadStatusById, setUploadStatusById] = useState<Record<string, string>>({});
+  const uploadControllers = useRef<Record<string, AbortController>>({});
+
   const [useWeb, setUseWeb] = useState(false);
   const [webAvailable, setWebAvailable] = useState(false);
   const [sending, setSending] = useState(false);
@@ -43,24 +48,43 @@ export default function App() {
       .catch(() => setWebAvailable(false));
   }, []);
 
+  function setStatus(id: string, msg: string) {
+    setUploadStatusById((p) => ({ ...p, [id]: msg }));
+  }
+
   // Shared upload logic used by both the button and drag-and-drop.
   async function handleUpload(file: File) {
+    const sessionId = activeId; // capture now; the user may switch chats mid-upload
     const ext = file.name.toLowerCase().slice(file.name.lastIndexOf("."));
     if (![".pdf", ".txt"].includes(ext)) {
-      setUploadStatus("Only .pdf and .txt files are supported.");
+      setStatus(sessionId, "Only .pdf and .txt files are supported.");
       return;
     }
-    setUploading(true);
-    setUploadStatus(`Uploading ${file.name}…`);
+
+    const controller = new AbortController();
+    uploadControllers.current[sessionId] = controller;
+    setUploadingIds((p) => new Set(p).add(sessionId));
+    setStatus(sessionId, `Uploading ${file.name}…`);
+
     try {
-      const res = await api.upload(file, activeId);
-      setUploadStatus(res.message);
-      setActiveDoc(res.filename);
+      const res = await api.upload(file, sessionId, controller.signal);
+      setStatus(sessionId, res.message);
+      setSessionDoc(sessionId, res.filename);
     } catch (err) {
-      setUploadStatus(`Upload failed: ${(err as Error).message}`);
+      const isAbort = (err as Error).name === "AbortError";
+      setStatus(sessionId, isAbort ? "Upload cancelled." : `Upload failed: ${(err as Error).message}`);
     } finally {
-      setUploading(false);
+      setUploadingIds((p) => {
+        const next = new Set(p);
+        next.delete(sessionId);
+        return next;
+      });
+      delete uploadControllers.current[sessionId];
     }
+  }
+
+  function cancelUpload() {
+    uploadControllers.current[activeId]?.abort();
   }
 
   async function handleAsk(question: string) {
@@ -145,9 +169,10 @@ export default function App() {
               {theme === "dark" ? "☀️" : "🌙"}
             </button>
             <UploadPanel
-              busy={uploading}
-              status={uploadStatus}
+              busy={uploadingIds.has(activeId)}
+              status={uploadStatusById[activeId] ?? ""}
               onFile={handleUpload}
+              onCancel={cancelUpload}
             />
           </div>
         </header>

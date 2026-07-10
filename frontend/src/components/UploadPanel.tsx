@@ -8,9 +8,10 @@ interface Props {
   busy: boolean;
   status: string;
   onFile: (file: File) => void;
+  onCancel: () => void;
 }
 
-export function UploadPanel({ busy, status, onFile }: Props) {
+export function UploadPanel({ busy, status, onFile, onCancel }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   return (
@@ -29,6 +30,11 @@ export function UploadPanel({ busy, status, onFile }: Props) {
       <button className="upload-btn" disabled={busy} onClick={() => inputRef.current?.click()}>
         {busy ? "Indexing…" : "Upload document"}
       </button>
+      {busy && (
+        <button className="cancel-upload" onClick={onCancel} title="Cancel upload">
+          Cancel
+        </button>
+      )}
       {status && <span className="upload-status">{status}</span>}
     </div>
   );

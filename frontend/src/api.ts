@@ -41,11 +41,19 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   health: () => request<{ status: string; web_tool: boolean }>("/api/health"),
 
-  upload: (file: File, sessionId: string): Promise<UploadResponse> => {
+  upload: (
+    file: File,
+    sessionId: string,
+    signal?: AbortSignal
+  ): Promise<UploadResponse> => {
     const form = new FormData();
     form.append("file", file);
     form.append("session_id", sessionId); // scope the doc to this chat
-    return request<UploadResponse>("/api/upload", { method: "POST", body: form });
+    return request<UploadResponse>("/api/upload", {
+      method: "POST",
+      body: form,
+      signal, // lets the caller cancel the upload
+    });
   },
 
   ask: (sessionId: string, question: string, useWeb: boolean): Promise<AskResponse> =>

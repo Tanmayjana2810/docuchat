@@ -119,6 +119,11 @@ body { background: var(--bg); color: var(--text); }
 }
 .upload-btn:hover:not(:disabled) { border-color: var(--accent); }
 .upload-btn:disabled { opacity: 0.6; cursor: default; }
+.cancel-upload {
+  background: none; border: 1px solid var(--border); color: var(--danger);
+  border-radius: 8px; padding: 10px 12px; cursor: pointer; font-size: 13px;
+}
+.cancel-upload:hover { border-color: var(--danger); }
 .upload-status { color: var(--muted); font-size: 12px; max-width: 240px; }
 
 /* ---- Chat ---- */
