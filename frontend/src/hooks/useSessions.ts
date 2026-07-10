@@ -84,6 +84,11 @@ export function useSessions() {
     });
   }, []);
 
+  const renameSession = useCallback((id: string, title: string) => {
+    const clean = title.trim() || "New chat";
+    setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, title: clean } : s)));
+  }, []);
+
   const addMessage = useCallback(
     (msg: Message) => {
       setSessions((prev) =>
@@ -114,6 +119,7 @@ export function useSessions() {
     selectSession,
     clearChat,
     deleteSession,
+    renameSession,
     addMessage,
   };
 }

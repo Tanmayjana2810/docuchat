@@ -70,13 +70,24 @@ body { background: var(--bg); color: var(--text); }
 }
 .history-item:hover { background: var(--panel-2); color: var(--text); }
 .history-item.active { background: var(--panel-2); color: var(--text); }
-.history-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
-.delete-btn {
+.history-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; flex: 1; }
+.history-actions { display: flex; align-items: center; gap: 2px; flex: none; }
+.edit-btn, .delete-btn {
   background: none; border: none; color: var(--muted); cursor: pointer;
-  font-size: 18px; line-height: 1; padding: 0 4px; opacity: 0;
+  line-height: 1; padding: 0 4px; opacity: 0;
 }
+.edit-btn { font-size: 13px; }
+.delete-btn { font-size: 18px; }
+.history-item:hover .edit-btn,
 .history-item:hover .delete-btn { opacity: 1; }
+.edit-btn:hover { color: var(--accent); }
 .delete-btn:hover { color: var(--danger); }
+.history-edit {
+  flex: 1; min-width: 0; background: var(--bg); color: var(--text);
+  border: 1px solid var(--accent); border-radius: 6px; padding: 4px 8px;
+  font-size: 14px; font-family: inherit;
+}
+.history-edit:focus { outline: none; }
 .empty { color: var(--muted); font-size: 13px; padding: 8px 4px; }
 .sidebar-footer { color: var(--muted); font-size: 12px; padding-top: 10px; border-top: 1px solid var(--border); }
 

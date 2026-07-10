@@ -19,6 +19,7 @@ export default function App() {
     selectSession,
     clearChat,
     deleteSession,
+    renameSession,
     addMessage,
   } = useSessions();
 
@@ -112,6 +113,7 @@ export default function App() {
         onNewChat={newChat}
         onSelect={selectSession}
         onDelete={deleteSession}
+        onRename={renameSession}
       />
 
       <main className="main">

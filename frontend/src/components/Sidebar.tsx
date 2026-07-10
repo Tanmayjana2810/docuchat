@@ -1,6 +1,7 @@
 // The left sidebar: the "New Chat" button and the "Chat History" list.
-// Each past conversation (session) is shown here; clicking one opens it.
+// Each past conversation can be opened, renamed (pencil / double-click), or deleted.
 
+import { useState } from "react";
 import type { Session } from "../types";
 
 interface Props {
@@ -9,9 +10,30 @@ interface Props {
   onNewChat: () => void;
   onSelect: (id: string) => void;
   onDelete: (id: string) => void;
+  onRename: (id: string, title: string) => void;
 }
 
-export function Sidebar({ sessions, activeId, onNewChat, onSelect, onDelete }: Props) {
+export function Sidebar({
+  sessions,
+  activeId,
+  onNewChat,
+  onSelect,
+  onDelete,
+  onRename,
+}: Props) {
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+
+  function startEdit(s: Session) {
+    setEditingId(s.id);
+    setDraft(s.title);
+  }
+
+  function commit() {
+    if (editingId) onRename(editingId, draft);
+    setEditingId(null);
+  }
+
   return (
     <aside className="sidebar">
       <button className="new-chat" onClick={onNewChat}>
@@ -26,19 +48,57 @@ export function Sidebar({ sessions, activeId, onNewChat, onSelect, onDelete }: P
           <div
             key={s.id}
             className={`history-item ${s.id === activeId ? "active" : ""}`}
-            onClick={() => onSelect(s.id)}
+            onClick={() => editingId !== s.id && onSelect(s.id)}
           >
-            <span className="history-title">{s.title || "New chat"}</span>
-            <button
-              className="delete-btn"
-              title="Delete conversation"
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete(s.id);
-              }}
-            >
-              ×
-            </button>
+            {editingId === s.id ? (
+              <input
+                className="history-edit"
+                autoFocus
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onBlur={commit}
+                onClick={(e) => e.stopPropagation()}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") commit();
+                  if (e.key === "Escape") setEditingId(null);
+                }}
+              />
+            ) : (
+              <span
+                className="history-title"
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  startEdit(s);
+                }}
+              >
+                {s.title || "New chat"}
+              </span>
+            )}
+
+            {editingId !== s.id && (
+              <div className="history-actions">
+                <button
+                  className="edit-btn"
+                  title="Rename conversation"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    startEdit(s);
+                  }}
+                >
+                  ✎
+                </button>
+                <button
+                  className="delete-btn"
+                  title="Delete conversation"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDelete(s.id);
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+            )}
           </div>
         ))}
       </nav>
