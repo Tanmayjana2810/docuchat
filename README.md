@@ -12,11 +12,30 @@ Built for the AI20 Labs Software Engineer technical assignment.
 - **Vector store:** ChromaDB (persistent, on disk)
 - **Bonus:** MongoDB session storage, Dappier web access, cookie-based user sessions, GitHub Actions CI/CD, Docker
 
-### UX highlights
-Streaming answers (token-by-token, like ChatGPT), light/dark theme toggle,
-renamable chat history, delete confirmation, export chat to Markdown, markdown-
-formatted answers with copy buttons and timestamps, drag-and-drop upload, and a
-clear "document ready" indicator.
+---
+
+## Features
+
+**Document Q&A (core)**
+- Upload **PDF or `.txt`** files, via a button or **drag-and-drop** anywhere on the page.
+- Answers are **grounded strictly in the uploaded document**; if it's not there, the agent clearly says it couldn't find it (no hallucinating).
+- **Conversation memory** — handles follow-ups ("are you sure?") and questions about the chat itself ("what did I ask first?").
+- **Per-chat document scoping** — each conversation only queries its own uploaded document, so answers never bleed between chats.
+- **Streaming answers** — responses appear token-by-token, like ChatGPT.
+- **Web search (optional)** — a toggle lets the agent answer beyond the document using the Dappier tool.
+
+**Chat & history management**
+- **New Chat**, **Clear Chat**, and full **Chat History** in the sidebar.
+- **Rename** any conversation (pencil icon or double-click) and **delete** it (with a confirmation step).
+- **Export** a conversation to a Markdown file.
+- History **persists across page refreshes** (localStorage) and is also **stored server-side in MongoDB**, so the sidebar is database-backed.
+
+**Interface & polish**
+- **Light / dark theme toggle** (remembers your choice).
+- **Markdown-formatted** answers with **copy-to-clipboard** buttons and **timestamps**.
+- **"Document ready" indicator** showing the active chat's file.
+- **Cancellable uploads** with per-chat progress, and non-blocking indexing so a large PDF never freezes the app.
+- Clean, responsive UI that works on smaller screens.
 
 ---
 
@@ -24,7 +43,7 @@ clear "document ready" indicator.
 
 - **Live app (frontend):** https://ai20-document-qa.vercel.app
 - **Backend API + docs:** https://tanmayai20qa.duckdns.org/docs
-- **Video walkthrough:** _add your 1–2 min screen-recording link here (Loom / Google Drive)_
+- **Video walkthrough:** https://drive.google.com/file/d/1Pm2zI6HamSBtEjwOY-gqaGOW7SOVqzzT/view?usp=sharing
 
 Deployment at a glance: React + TypeScript frontend on **Vercel** (HTTPS), FastAPI
 backend in **Docker on AWS EC2**, fronted by **Caddy** for automatic HTTPS.
