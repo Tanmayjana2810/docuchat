@@ -11,10 +11,26 @@ import type {
 
 const BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
+// A stable per-browser id (created once, kept in localStorage) that we send on
+// every request so the backend can group each user's server-side sessions —
+// more reliable than cross-site cookies.
+function userId(): string {
+  let id = localStorage.getItem("ai20_user_id");
+  if (!id) {
+    id = Math.random().toString(36).slice(2) + Date.now().toString(36);
+    localStorage.setItem("ai20_user_id", id);
+  }
+  return id;
+}
+
 // `credentials: "include"` sends the "uid" cookie so the backend can keep each
 // user's server-side sessions separate.
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, { credentials: "include", ...init });
+  const res = await fetch(`${BASE}${path}`, {
+    credentials: "include",
+    ...init,
+    headers: { "X-User-Id": userId(), ...(init?.headers ?? {}) },
+  });
   if (!res.ok) {
     const detail = await res.text();
     throw new Error(`${res.status}: ${detail}`);
@@ -54,7 +70,7 @@ export const api = {
     const res = await fetch(`${BASE}/api/ask/stream`, {
       method: "POST",
       credentials: "include",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-User-Id": userId() },
       body: JSON.stringify({ session_id: sessionId, question, use_web: useWeb }),
     });
     if (!res.ok || !res.body) throw new Error(`${res.status}: ${await res.text()}`);

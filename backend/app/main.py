@@ -24,7 +24,17 @@ import re
 import time
 import uuid
 
-from fastapi import Cookie, Depends, FastAPI, File, Form, HTTPException, Response, UploadFile
+from fastapi import (
+    Cookie,
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    Header,
+    HTTPException,
+    Response,
+    UploadFile,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
@@ -86,19 +96,20 @@ def _history_and_prev(user_id: str, session_id: str):
 # It's anonymous (no password), but enough to keep every user's chat sessions
 # separate on the server. FastAPI injects this dependency into any route that
 # needs the current user.
-def current_user(response: Response, uid: str | None = Cookie(default=None)) -> str:
+def current_user(
+    response: Response,
+    uid: str | None = Cookie(default=None),
+    x_user_id: str | None = Header(default=None),
+) -> str:
+    # Prefer an explicit client-generated id sent as the X-User-Id header. The
+    # frontend stores this in localStorage, so it's stable and works reliably
+    # across the Vercel <-> EC2 origins (where third-party cookies are flaky).
+    if x_user_id:
+        return x_user_id
     if not uid:
         uid = uuid.uuid4().hex
-        # SameSite=None + Secure lets the cookie travel from the Vercel frontend
-        # (one HTTPS domain) to this backend (another HTTPS domain) so each user
-        # keeps a stable identity and their server-side session history.
         response.set_cookie(
-            "uid",
-            uid,
-            max_age=60 * 60 * 24 * 365,
-            samesite="none",
-            secure=True,
-            httponly=False,
+            "uid", uid, max_age=60 * 60 * 24 * 365, samesite="none", secure=True
         )
     return uid
 
