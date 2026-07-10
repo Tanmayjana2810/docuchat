@@ -2,7 +2,12 @@
 // The base URL is read from an env var so we can point at localhost in dev and
 // at the AWS EC2 URL in production without changing code.
 
-import type { AskResponse, UploadResponse } from "./types";
+import type {
+  AskResponse,
+  ServerSessionDetail,
+  ServerSessionSummary,
+  UploadResponse,
+} from "./types";
 
 const BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
@@ -20,9 +25,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   health: () => request<{ status: string; web_tool: boolean }>("/api/health"),
 
-  upload: (file: File): Promise<UploadResponse> => {
+  upload: (file: File, sessionId: string): Promise<UploadResponse> => {
     const form = new FormData();
     form.append("file", file);
+    form.append("session_id", sessionId); // scope the doc to this chat
     return request<UploadResponse>("/api/upload", { method: "POST", body: form });
   },
 
@@ -74,4 +80,21 @@ export const api = {
       }
     }
   },
+
+  // --- MongoDB-backed session endpoints (bonus) ---
+  listSessions: (): Promise<ServerSessionSummary[]> =>
+    request<ServerSessionSummary[]>("/api/sessions"),
+
+  getSession: (id: string): Promise<ServerSessionDetail> =>
+    request<ServerSessionDetail>(`/api/sessions/${id}`),
+
+  renameSession: (id: string, title: string): Promise<unknown> =>
+    request(`/api/sessions/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title }),
+    }),
+
+  deleteSessionOnServer: (id: string): Promise<unknown> =>
+    request(`/api/sessions/${id}`, { method: "DELETE" }),
 };

@@ -11,6 +11,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { Message, Session } from "../types";
+import { api } from "../api";
 
 const STORAGE_KEY = "ai20_sessions_v1";
 const ACTIVE_KEY = "ai20_active_session_v1";
@@ -58,6 +59,35 @@ export function useSessions() {
     if (activeId) localStorage.setItem(ACTIVE_KEY, activeId);
   }, [activeId]);
 
+  // On startup, pull the user's sessions from the MongoDB-backed API and merge
+  // in any that aren't already in localStorage (e.g. from another device). This
+  // is what makes the sidebar database-backed. If the API is unreachable, we
+  // silently keep the localStorage-only view, so the app never breaks.
+  useEffect(() => {
+    api
+      .listSessions()
+      .then((server) => {
+        if (!server?.length) return;
+        setSessions((prev) => {
+          const byId = new Map(prev.map((s) => [s.id, s]));
+          for (const ss of server) {
+            if (!byId.has(ss.session_id)) {
+              byId.set(ss.session_id, {
+                id: ss.session_id,
+                title: ss.title,
+                messages: [],
+                updatedAt: ss.updated_at,
+              });
+            }
+          }
+          return Array.from(byId.values()).sort((a, b) =>
+            a.updatedAt < b.updatedAt ? 1 : -1
+          );
+        });
+      })
+      .catch(() => {});
+  }, []);
+
   const active = sessions.find((s) => s.id === activeId) ?? sessions[0];
 
   const newChat = useCallback(() => {
@@ -66,7 +96,38 @@ export function useSessions() {
     setActiveId(s.id);
   }, []);
 
-  const selectSession = useCallback((id: string) => setActiveId(id), []);
+  const selectSession = useCallback((id: string) => {
+    setActiveId(id);
+    // If this session has no messages loaded yet (e.g. it came from the server
+    // on another device), fetch its full history from the database.
+    setSessions((prev) => {
+      const s = prev.find((x) => x.id === id);
+      if (s && s.messages.length === 0) {
+        api
+          .getSession(id)
+          .then((detail) => {
+            if (!detail.messages?.length) return;
+            setSessions((cur) =>
+              cur.map((x) =>
+                x.id === id
+                  ? {
+                      ...x,
+                      title: detail.title || x.title,
+                      messages: detail.messages.map((m) => ({
+                        role: m.role,
+                        content: m.content,
+                        createdAt: m.created_at,
+                      })),
+                    }
+                  : x
+              )
+            );
+          })
+          .catch(() => {});
+      }
+      return prev;
+    });
+  }, []);
 
   const clearChat = useCallback(() => {
     // "Clear Chat" empties the CURRENT conversation but keeps the session.
@@ -82,11 +143,13 @@ export function useSessions() {
       const next = prev.filter((s) => s.id !== id);
       return next.length ? next : [freshSession()];
     });
+    api.deleteSessionOnServer(id).catch(() => {});
   }, []);
 
   const renameSession = useCallback((id: string, title: string) => {
     const clean = title.trim() || "New chat";
     setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, title: clean } : s)));
+    api.renameSession(id, clean).catch(() => {});
   }, []);
 
   const addMessage = useCallback(

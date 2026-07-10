@@ -33,6 +33,7 @@ from llama_index.core import (
 )
 from llama_index.core.node_parser import SentenceSplitter
 from llama_index.core.prompts import PromptTemplate
+from llama_index.core.vector_stores import MetadataFilter, MetadataFilters
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.llms.groq import Groq
 from llama_index.vector_stores.chroma import ChromaVectorStore
@@ -56,6 +57,24 @@ QA_TEMPLATE = PromptTemplate(
 )
 
 FALLBACK_MSG = "I could not find the answer to that in the uploaded document."
+
+# Conversation-aware prompt: lets the agent answer document questions (grounded)
+# AND questions about the conversation itself (from history), while still
+# refusing to use outside knowledge.
+CHAT_PROMPT = (
+    "You are an assistant answering questions about a document the user uploaded.\n"
+    "Rules:\n"
+    "- If the question is about the document's content, answer using ONLY the "
+    "document context below. If the answer isn't in the context, reply exactly: "
+    f'"{FALLBACK_MSG}"\n'
+    "- If the question is about this conversation itself (e.g. what the user asked "
+    "earlier), answer from the conversation history.\n"
+    "- Never use outside knowledge.\n\n"
+    "Conversation history:\n{history}\n\n"
+    "Document context:\n{context}\n\n"
+    "User question: {question}\n"
+    "Answer:"
+)
 
 
 class RAGEngine:
@@ -108,95 +127,138 @@ class RAGEngine:
         self._ready = True
 
     # ---- INGESTION ---------------------------------------------------------
-    def add_documents(self, docs: list[Document]) -> int:
+    def add_documents(self, docs: list[Document], session_id: str | None = None) -> int:
         """Chunk, embed, and store a list of LlamaIndex Documents.
+
+        If a session_id is given, every chunk is tagged with it so that queries
+        from that chat only ever retrieve *its own* document — this prevents one
+        chat's answers from leaking in content uploaded in a different chat.
 
         Returns the number of chunks that were indexed.
         """
         self._lazy_init()
         assert self._index is not None
 
+        if session_id:
+            for d in docs:
+                d.metadata["session_id"] = session_id
+
         nodes = LlamaSettings.node_parser.get_nodes_from_documents(docs)
         self._index.insert_nodes(nodes)
         return len(nodes)
 
-    # ---- QUERYING ----------------------------------------------------------
-    def query(self, question: str) -> tuple[str, bool, list[SourceChunk]]:
-        """Answer a question from the indexed documents.
+    # ---- HELPERS -----------------------------------------------------------
+    def _retriever(self, session_id: str | None):
+        """A retriever scoped to one session's documents (if session_id given)."""
+        filters = None
+        if session_id:
+            filters = MetadataFilters(
+                filters=[MetadataFilter(key="session_id", value=session_id)]
+            )
+        return self._index.as_retriever(
+            similarity_top_k=settings.similarity_top_k, filters=filters
+        )
 
-        Returns (answer, grounded, sources).
-        `grounded` is False when nothing relevant was found — the caller can
-        then decide to fall back to the web tool or the "I don't know" message.
+    @staticmethod
+    def _retrieval_text(question: str, last_user_question: str | None) -> str:
+        """For short follow-ups (e.g. 'Are you sure?'), prepend the previous
+        question so retrieval still finds the relevant document chunks."""
+        if last_user_question and len(question.split()) <= 6:
+            return f"{last_user_question} {question}"
+        return question
+
+    @staticmethod
+    def _format_history(history: list[dict] | None) -> str:
+        if not history:
+            return "(no earlier messages)"
+        lines = []
+        for m in history[-8:]:  # keep the last few turns
+            who = "User" if m.get("role") == "user" else "Assistant"
+            lines.append(f"{who}: {m.get('content', '')}")
+        return "\n".join(lines)
+
+    def _prepare(self, question, session_id, history, last_user_question):
+        """Retrieve document context (scoped to the session) and build the
+        conversation-aware prompt. Returns (prompt, relevant_nodes, sources)."""
+        retriever = self._retriever(session_id)
+        scored = retriever.retrieve(self._retrieval_text(question, last_user_question))
+        relevant = [n for n in scored if (n.score or 0) >= settings.similarity_cutoff]
+        sources = [
+            SourceChunk(
+                text=n.node.get_content()[:400],
+                score=round(n.score or 0, 3),
+                document=n.node.metadata.get("file_name"),
+            )
+            for n in relevant
+        ]
+        context = (
+            "\n\n---\n\n".join(n.node.get_content() for n in relevant)
+            if relevant
+            else "(no relevant document content found)"
+        )
+        prompt = CHAT_PROMPT.format(
+            history=self._format_history(history), context=context, question=question
+        )
+        return prompt, relevant, sources
+
+    # ---- QUERYING ----------------------------------------------------------
+    def query(
+        self,
+        question: str,
+        session_id: str | None = None,
+        last_user_question: str | None = None,
+        history: list[dict] | None = None,
+    ) -> tuple[str, bool, list[SourceChunk]]:
+        """Answer a question using the document context AND conversation history.
+
+        Returns (answer, grounded, sources). `grounded` is True when the answer
+        came from the document (some relevant chunk was found and the model
+        didn't reply "not found").
         """
         self._lazy_init()
-        assert self._index is not None
+        prompt, relevant, sources = self._prepare(
+            question, session_id, history, last_user_question
+        )
 
-        # Retrieve the most similar chunks and keep only those above our cutoff.
-        retriever = self._index.as_retriever(similarity_top_k=settings.similarity_top_k)
-        scored_nodes = retriever.retrieve(question)
-        relevant = [n for n in scored_nodes if (n.score or 0) >= settings.similarity_cutoff]
-
-        if not relevant:
+        # No LLM configured -> return the best chunk verbatim (learning mode).
+        if LlamaSettings.llm is None:
+            if relevant:
+                return relevant[0].node.get_content(), True, sources
             return FALLBACK_MSG, False, []
 
-        sources = [
-            SourceChunk(
-                text=n.node.get_content()[:400],
-                score=round(n.score or 0, 3),
-                document=n.node.metadata.get("file_name"),
-            )
-            for n in relevant
-        ]
-
-        # No LLM configured -> return the best chunk verbatim so the app still
-        # works end-to-end without an API key (useful while learning).
-        if LlamaSettings.llm is None:
-            return relevant[0].node.get_content(), True, sources
-
-        synthesizer = get_response_synthesizer(text_qa_template=QA_TEMPLATE)
-        response = synthesizer.synthesize(question, nodes=relevant)
-        return str(response).strip(), True, sources
+        answer = str(LlamaSettings.llm.complete(prompt)).strip()
+        grounded = bool(relevant) and not answer.lower().startswith("i could not find")
+        return answer, grounded, sources
 
     # ---- STREAMING QUERY ---------------------------------------------------
-    def query_stream(self, question: str):
-        """Like query(), but returns a token generator for streaming answers.
-
-        Returns (grounded, sources, token_gen). When grounded is False the
-        token_gen is None and the caller streams the fallback / web answer.
-        """
+    def query_stream(
+        self,
+        question: str,
+        session_id: str | None = None,
+        last_user_question: str | None = None,
+        history: list[dict] | None = None,
+    ):
+        """Like query(), but returns (grounded, sources, token_gen) where
+        token_gen streams the answer as it's produced."""
         self._lazy_init()
-        assert self._index is not None
+        prompt, relevant, sources = self._prepare(
+            question, session_id, history, last_user_question
+        )
+        grounded = bool(relevant)
 
-        retriever = self._index.as_retriever(similarity_top_k=settings.similarity_top_k)
-        scored_nodes = retriever.retrieve(question)
-        relevant = [n for n in scored_nodes if (n.score or 0) >= settings.similarity_cutoff]
-
-        if not relevant:
-            return False, [], None
-
-        sources = [
-            SourceChunk(
-                text=n.node.get_content()[:400],
-                score=round(n.score or 0, 3),
-                document=n.node.metadata.get("file_name"),
-            )
-            for n in relevant
-        ]
-
-        # No LLM -> yield the best chunk as a single "token".
         if LlamaSettings.llm is None:
-            text = relevant[0].node.get_content()
+            text = relevant[0].node.get_content() if relevant else FALLBACK_MSG
 
             def _one():
                 yield text
 
-            return True, sources, _one()
+            return grounded, sources, _one()
 
-        # streaming=True makes synthesize() return a response whose .response_gen
-        # yields the answer token-by-token as the LLM produces it.
-        synthesizer = get_response_synthesizer(text_qa_template=QA_TEMPLATE, streaming=True)
-        streaming_response = synthesizer.synthesize(question, nodes=relevant)
-        return True, sources, streaming_response.response_gen
+        def _gen():
+            for chunk in LlamaSettings.llm.stream_complete(prompt):
+                yield chunk.delta or ""
+
+        return grounded, sources, _gen()
 
     # ---- WEB ANSWER SUMMARISATION -----------------------------------------
     def summarize_web(self, question: str, web_text: str) -> str:

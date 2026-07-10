@@ -70,6 +70,11 @@ class _MongoBackend:
     def delete_session(self, user_id, session_id) -> None:
         self._col.delete_one({"session_id": session_id, "user_id": user_id})
 
+    def rename_session(self, user_id, session_id, title: str) -> None:
+        self._col.update_one(
+            {"session_id": session_id, "user_id": user_id}, {"$set": {"title": title}}
+        )
+
 
 class _MemoryBackend:
     """Same interface as _MongoBackend, but stores everything in a dict."""
@@ -116,6 +121,11 @@ class _MemoryBackend:
 
     def delete_session(self, user_id, session_id) -> None:
         self._store.pop((user_id, session_id), None)
+
+    def rename_session(self, user_id, session_id, title: str) -> None:
+        rec = self._store.get((user_id, session_id))
+        if rec:
+            rec["title"] = title
 
 
 def _make_backend():

@@ -57,3 +57,7 @@ class SessionDetail(BaseModel):
     session_id: str
     title: str
     messages: list[ChatMessage]
+
+
+class RenameRequest(BaseModel):
+    title: str

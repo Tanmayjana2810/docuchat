@@ -24,6 +24,20 @@ export interface Session {
   updatedAt: string;
 }
 
+// Shapes returned by the backend's MongoDB-backed session endpoints.
+export interface ServerSessionSummary {
+  session_id: string;
+  title: string;
+  updated_at: string;
+  message_count: number;
+}
+
+export interface ServerSessionDetail {
+  session_id: string;
+  title: string;
+  messages: { role: Role; content: string; created_at: string }[];
+}
+
 // Shape of POST /api/ask response
 export interface AskResponse {
   answer: string;

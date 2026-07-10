@@ -51,7 +51,7 @@ export default function App() {
     setUploading(true);
     setUploadStatus(`Uploading ${file.name}…`);
     try {
-      const res = await api.upload(file);
+      const res = await api.upload(file, activeId);
       setUploadStatus(res.message);
       setDocName(res.filename);
     } catch (err) {

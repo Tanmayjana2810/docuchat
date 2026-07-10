@@ -24,7 +24,7 @@ import re
 import time
 import uuid
 
-from fastapi import Cookie, Depends, FastAPI, File, HTTPException, Response, UploadFile
+from fastapi import Cookie, Depends, FastAPI, File, Form, HTTPException, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
@@ -35,6 +35,7 @@ from .schemas import (
     AskRequest,
     AskResponse,
     ChatMessage,
+    RenameRequest,
     SessionDetail,
     SessionSummary,
     UploadResponse,
@@ -68,6 +69,18 @@ def _stream_words(text: str):
         yield part
 
 
+def _history_and_prev(user_id: str, session_id: str):
+    """Return (history, previous_user_question) for the session's PRIOR turns.
+    Call this BEFORE saving the new question. History gives the LLM conversation
+    memory; the previous question helps retrieve context for short follow-ups."""
+    prior = store.get_session(user_id, session_id)
+    history = (
+        [{"role": m.role, "content": m.content} for m in prior.messages] if prior else []
+    )
+    prev_q = next((m["content"] for m in reversed(history) if m["role"] == "user"), None)
+    return history, prev_q
+
+
 # --- Basic user session management (bonus #3) --------------------------------
 # We identify each browser with a random id stored in a cookie named "uid".
 # It's anonymous (no password), but enough to keep every user's chat sessions
@@ -76,8 +89,16 @@ def _stream_words(text: str):
 def current_user(response: Response, uid: str | None = Cookie(default=None)) -> str:
     if not uid:
         uid = uuid.uuid4().hex
+        # SameSite=None + Secure lets the cookie travel from the Vercel frontend
+        # (one HTTPS domain) to this backend (another HTTPS domain) so each user
+        # keeps a stable identity and their server-side session history.
         response.set_cookie(
-            "uid", uid, max_age=60 * 60 * 24 * 365, samesite="lax", httponly=False
+            "uid",
+            uid,
+            max_age=60 * 60 * 24 * 365,
+            samesite="none",
+            secure=True,
+            httponly=False,
         )
     return uid
 
@@ -92,7 +113,9 @@ def health() -> dict:
 
 
 @app.post("/api/upload", response_model=UploadResponse)
-async def upload(file: UploadFile = File(...)) -> UploadResponse:
+async def upload(
+    file: UploadFile = File(...), session_id: str | None = Form(default=None)
+) -> UploadResponse:
     ext = os.path.splitext(file.filename or "")[1].lower()
     if ext not in ALLOWED_EXT:
         raise HTTPException(400, "Only .pdf and .txt files are supported.")
@@ -102,8 +125,9 @@ async def upload(file: UploadFile = File(...)) -> UploadResponse:
     with open(dest, "wb") as f:
         f.write(await file.read())
 
+    # Tag the document with the chat's session_id so only this chat can query it.
     docs = load_document(dest)
-    n_chunks = engine.add_documents(docs)
+    n_chunks = engine.add_documents(docs, session_id=session_id)
 
     return UploadResponse(
         filename=file.filename,
@@ -114,13 +138,19 @@ async def upload(file: UploadFile = File(...)) -> UploadResponse:
 
 @app.post("/api/ask", response_model=AskResponse)
 async def ask(body: AskRequest, user_id: str = Depends(current_user)) -> AskResponse:
-    # 1) Save the user's message.
+    # 1) Grab prior history (for memory + follow-up context), then save the new one.
+    history, prev_q = _history_and_prev(user_id, body.session_id)
     store.upsert_message(
         user_id, body.session_id, ChatMessage(role="user", content=body.question)
     )
 
-    # 2) Try to answer from the uploaded document(s).
-    answer, grounded, sources = engine.query(body.question)
+    # 2) Try to answer from THIS chat's document(s), with conversation memory.
+    answer, grounded, sources = engine.query(
+        body.question,
+        session_id=body.session_id,
+        last_user_question=prev_q,
+        history=history,
+    )
 
     # 3) If the document couldn't answer (nothing retrieved OR the model replied
     #    "not found") and the user allowed web access, try Dappier.
@@ -145,6 +175,7 @@ async def ask_stream(body: AskRequest, user_id: str = Depends(current_user)) -> 
       {"type":"token","text":"..."}
       {"type":"done"}
     """
+    history, prev_q = _history_and_prev(user_id, body.session_id)
     store.upsert_message(
         user_id, body.session_id, ChatMessage(role="user", content=body.question)
     )
@@ -158,7 +189,12 @@ async def ask_stream(body: AskRequest, user_id: str = Depends(current_user)) -> 
             # then stream it word-by-word. We can't stream the raw LLM tokens
             # here because we may need to discard a "not found" doc answer and
             # switch to the web result instead.
-            answer, grounded, sources = engine.query(body.question)
+            answer, grounded, sources = engine.query(
+                body.question,
+                session_id=body.session_id,
+                last_user_question=prev_q,
+                history=history,
+            )
             if not grounded or _looks_unanswered(answer):
                 web_answer = search_web(body.question)
                 if web_answer:
@@ -173,7 +209,12 @@ async def ask_stream(body: AskRequest, user_id: str = Depends(current_user)) -> 
                 time.sleep(0.015)  # gentle typewriter pacing
         else:
             # Web toggle OFF: stream the real LLM tokens live.
-            grounded, sources, token_gen = engine.query_stream(body.question)
+            grounded, sources, token_gen = engine.query_stream(
+                body.question,
+                session_id=body.session_id,
+                last_user_question=prev_q,
+                history=history,
+            )
             yield json.dumps(
                 {"type": "meta", "grounded": grounded, "sources": [s.model_dump() for s in sources]}
             ) + "\n"
@@ -204,6 +245,14 @@ def get_session(session_id: str, user_id: str = Depends(current_user)) -> Sessio
     if not detail:
         raise HTTPException(404, "Session not found.")
     return detail
+
+
+@app.patch("/api/sessions/{session_id}")
+def rename_session(
+    session_id: str, body: RenameRequest, user_id: str = Depends(current_user)
+) -> dict:
+    store.rename_session(user_id, session_id, body.title)
+    return {"renamed": session_id, "title": body.title}
 
 
 @app.delete("/api/sessions/{session_id}")
