@@ -1,1 +1,1 @@
-"""AI20 Labs Document Q&A backend package."""
+"""DocuChat Document Q&A backend package."""

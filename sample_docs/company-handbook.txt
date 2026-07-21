@@ -1,7 +1,7 @@
-AI20 Labs — Sample Company Handbook (for testing the Q&A app)
+Northwind Labs — Sample Company Handbook (for testing the Q&A app)
 
 About
-AI20 Labs is an AI development and strategy studio based in Austin, Texas. The
+Northwind Labs is an AI development and strategy studio based in Austin, Texas. The
 company builds Minimum Viable Products and helps organizations integrate AI into
 their existing systems.
 

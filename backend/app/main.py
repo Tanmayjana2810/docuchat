@@ -54,7 +54,7 @@ from .schemas import (
 from .session_store import store
 from .web_tool import search_web, web_enabled
 
-app = FastAPI(title="AI20 Labs — Document Q&A API", version="1.0.0")
+app = FastAPI(title="DocuChat — Document Q&A API", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,

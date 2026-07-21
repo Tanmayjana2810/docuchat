@@ -1,8 +1,8 @@
-# AI20 Labs — Intelligent Document Q&A
+# DocuChat — Intelligent Document Q&A
 
 A full-stack web app where you **upload a PDF or `.txt`**, then **chat with an AI agent** that answers questions using only that document. If the answer isn't in the document, the agent says so instead of making something up — and can optionally search the web.
 
-Built for the AI20 Labs Software Engineer technical assignment.
+A personal full-stack project by **Tanmay Jana** exploring retrieval-augmented generation (RAG): grounded, hallucination-resistant question answering over your own documents.
 
 - **Frontend:** React + TypeScript (Vite)
 - **Backend:** Python + FastAPI

@@ -131,7 +131,7 @@ export function Sidebar({
         ))}
       </nav>
 
-      <div className="sidebar-footer">AI20 Labs · Document Q&amp;A</div>
+      <div className="sidebar-footer">DocuChat · Document Q&amp;A</div>
     </aside>
   );
 }
